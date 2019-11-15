@@ -7,10 +7,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <errno.h>
 
-// 迭代 echo 服务器
-// 迭代服务器: 仅适用于瞬时服务.服务结束后立刻关闭 fd.
-// 每个客户端一次连接内只能获取一次服务.
+// 并发 echo 服务器
+// 适用于长时间服务, 每个连接内可进行多次服务
 
 #define handle_error(msg) \
            do { perror(msg); exit(EXIT_FAILURE); } while (0)
@@ -19,12 +21,21 @@
 #define SERVER_IP "127.0.0.1"
 #define LISTEN_BACKLOG 5
 
+void catch_child(int signum)
+{
+    while (waitpid(-1, NULL, WNOHANG));
+}
+
 void doit(int clientfd)
 {
+    // 100 次 echo
     char buff[1024];
     memset(buff, 0, sizeof(buff));
     if (read(clientfd, buff, sizeof(buff))) {
-        write(clientfd, buff, strlen(buff));
+        for (int j = 0; j < 100; ++j) {
+            sleep(1);
+            write(clientfd, buff, strlen(buff));
+        }
     }
 }
 
@@ -54,6 +65,13 @@ int main()
     if (listen(listenfd, LISTEN_BACKLOG) == -1) {
         handle_error(("listen"));
     }
+    struct sigaction act;
+    act.sa_handler = catch_child;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+
+    // 用于清理子进程
+    sigaction(SIGCHLD, &act, NULL);
 
     // 接收
     struct sockaddr_in cliAddr;
@@ -62,8 +80,25 @@ int main()
 
     for (;;) {
         int clientfd = accept(listenfd, (struct sockaddr *) &cliAddr, &client_addrLength);
-        if (clientfd < 0) handle_error("mainloop");
-        doit(clientfd);
+        if (clientfd < 0) {
+            if (errno == EINTR)
+                continue;
+            else
+                handle_error("accept");
+        }
+
+        if (clientfd < 0) handle_error("main");
+        char clientip[1024];
+        printf("客户ip:%s,端口:%d\n",
+               inet_ntop(AF_INET, &cliAddr.sin_addr.s_addr, clientip, sizeof(clientip)),
+               ntohs(cliAddr.sin_port));
+
+        if (fork() == 0) {
+            close(listenfd);
+            doit(clientfd);
+            close(clientfd);
+            exit(0);
+        }
         close(clientfd);
     }
 }
