@@ -21,22 +21,14 @@
 #define SERVER_IP "127.0.0.1"
 #define LISTEN_BACKLOG 5
 
-void catch_child(int signum)
-{
-    while (waitpid(-1, NULL, WNOHANG));
-}
-
 void doit(int clientfd)
 {
-    for (;;) {
-        // 100 次 echo
-        char buff[1024];
-        memset(buff, 0, sizeof(buff));
-        if (read(clientfd, buff, sizeof(buff))) {
-//        for (int j = 0; j < 100; ++j) {
-//            sleep(1);
-//            write(clientfd, buff, strlen(buff));
-//        }
+    // 100 次 echo
+    char buff[1024];
+    memset(buff, 0, sizeof(buff));
+    if (read(clientfd, buff, sizeof(buff))) {
+        for (int j = 0; j < 100; ++j) {
+            sleep(1);
             write(clientfd, buff, strlen(buff));
         }
     }
@@ -64,17 +56,6 @@ int main()
         handle_error("bind");
     }
 
-    // 监听
-    if (listen(listenfd, LISTEN_BACKLOG) == -1) {
-        handle_error(("listen"));
-    }
-    struct sigaction act;
-    act.sa_handler = catch_child;
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = 0;
-
-    // 用于清理子进程
-    sigaction(SIGCHLD, &act, NULL);
 
     // 接收
     struct sockaddr_in cliAddr;
